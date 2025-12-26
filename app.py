@@ -1,277 +1,307 @@
-# app.py
 import streamlit as st
 import pandas as pd
-import pydeck as pdk
-import numpy as np
+from datetime import datetime, timedelta
+import random
 
-st.set_page_config(page_title="Chennai Intersection Congestion - Schematic Map", layout="wide")
+st.set_page_config(page_title="WMS Landing (Ideal)", layout="wide")
 
-st.title("Chennai Metropolitan Area - Intersection Congestion (Schematic Map)")
-
-# =========================================================
-# Geometry helpers (no extra dependencies)
-# =========================================================
-def _lonlat_to_xy_m(lon, lat, lon0, lat0):
-    """
-    Equirectangular approximation: lon/lat -> meters around (lon0, lat0).
-    Good enough for city-scale schematic alignment.
-    """
-    R = 6371000.0
-    x = np.deg2rad(lon - lon0) * R * np.cos(np.deg2rad(lat0))
-    y = np.deg2rad(lat - lat0) * R
-    return x, y
-
-def _xy_m_to_lonlat(x, y, lon0, lat0):
-    R = 6371000.0
-    lon = lon0 + np.rad2deg(x / (R * np.cos(np.deg2rad(lat0))))
-    lat = lat0 + np.rad2deg(y / R)
-    return lon, lat
-
-def _snap_point_to_segment(px, py, ax, ay, bx, by):
-    """
-    Snap point P to segment AB in XY meters. Returns snapped point S and parameter t (0..1).
-    """
-    abx, aby = bx - ax, by - ay
-    apx, apy = px - ax, py - ay
-    denom = abx * abx + aby * aby
-    if denom == 0:
-        return ax, ay, 0.0
-    t = (apx * abx + apy * aby) / denom
-    t = max(0.0, min(1.0, t))
-    sx = ax + t * abx
-    sy = ay + t * aby
-    return sx, sy, t
-
-def snap_point_to_paths(lon, lat, paths, lon0, lat0):
-    """
-    Snap (lon,lat) to the nearest point on any polyline in `paths`.
-    paths: list of polylines, each polyline is [[lon,lat], [lon,lat], ...]
-    Returns snapped (lon,lat) and the local tangent direction (tx,ty) in meters (unit vector).
-    """
-    px, py = _lonlat_to_xy_m(lon, lat, lon0, lat0)
-
-    best = None
-    best_d2 = float("inf")
-
-    for path in paths:
-        xy = [_lonlat_to_xy_m(p[0], p[1], lon0, lat0) for p in path]
-        for i in range(len(xy) - 1):
-            ax, ay = xy[i]
-            bx, by = xy[i + 1]
-            sx, sy, _ = _snap_point_to_segment(px, py, ax, ay, bx, by)
-            d2 = (px - sx) ** 2 + (py - sy) ** 2
-            if d2 < best_d2:
-                tx, ty = bx - ax, by - ay
-                norm = np.hypot(tx, ty)
-                if norm == 0:
-                    tx, ty = 1.0, 0.0
-                else:
-                    tx, ty = tx / norm, ty / norm
-                best_d2 = d2
-                best = (sx, sy, tx, ty)
-
-    sx, sy, tx, ty = best
-    slon, slat = _xy_m_to_lonlat(sx, sy, lon0, lat0)
-    return slon, slat, tx, ty
-
-def offset_along_dir(lon, lat, dx, dy, distance_m, lon0, lat0):
-    """
-    Move from (lon,lat) by distance_m along direction (dx,dy) in meters (unit vector).
-    """
-    x, y = _lonlat_to_xy_m(lon, lat, lon0, lat0)
-    ox = x + dx * distance_m
-    oy = y + dy * distance_m
-    return _xy_m_to_lonlat(ox, oy, lon0, lat0)
-
-
-# =========================================================
-# 1) Dummy major corridors (replace with your real major corridors / GeoJSON later)
-#    NOTE: Paths must be [ [lon,lat], [lon,lat], ... ]
-# =========================================================
-corridors = pd.DataFrame([
-    {"name": "Corridor-1", "path": [[80.18, 13.08], [80.26, 13.06], [80.30, 13.03]]},
-    {"name": "Corridor-2", "path": [[80.19, 13.00], [80.22, 13.01], [80.26, 13.02]]},
-])
-
-corridor_paths = corridors["path"].tolist()
-
-# Reference center for meter conversion (Chennai-ish center)
-lon0, lat0 = 80.2500, 13.0500
-
-
-# =========================================================
-# 2) Dummy intersections (overall congestion) - will be snapped to corridor paths
-# =========================================================
-# congestion_level: 0.0 (free) -> 1.0 (oversaturated)
-intersections_raw = pd.DataFrame([
-    {"id": "JCT-001", "name": "Anna Salai / Mount Rd", "lat": 13.0604, "lon": 80.2496, "congestion_level": 0.85},
-    {"id": "JCT-002", "name": "Guindy",               "lat": 13.0107, "lon": 80.2206, "congestion_level": 0.55},
-    {"id": "JCT-003", "name": "Koyambedu",            "lat": 13.0732, "lon": 80.1960, "congestion_level": 0.25},
-])
-
-# Snap intersections onto nearest corridor polyline and store tangent (tx,ty)
-snapped_rows = []
-for _, r in intersections_raw.iterrows():
-    slon, slat, tx, ty = snap_point_to_paths(r["lon"], r["lat"], corridor_paths, lon0, lat0)
-    snapped_rows.append({**r.to_dict(), "lon": slon, "lat": slat, "tx": tx, "ty": ty})
-
-intersections = pd.DataFrame(snapped_rows)
-
-# =========================================================
-# 3) Generate approach markers automatically (aligned with corridor tangent)
-# =========================================================
-# distance from intersection to place approach dots (meters)
-distance_m = 35
-
-approach_rows = []
-for _, j in intersections.iterrows():
-    tx, ty = float(j["tx"]), float(j["ty"])
-    # Perpendicular direction
-    px, py = -ty, tx
-
-    # Dummy approach congestion levels (replace with ATCS approach-level values later)
-    base = float(j["congestion_level"])
-    levels = {
-        "UP": min(1.0, base + 0.05),
-        "DN": max(0.0, base - 0.10),
-        "LT": min(1.0, base + 0.10),
-        "RT": max(0.0, base - 0.05),
-    }
-
-    lon_up, lat_up = offset_along_dir(j["lon"], j["lat"], tx, ty,  distance_m, lon0, lat0)
-    lon_dn, lat_dn = offset_along_dir(j["lon"], j["lat"], tx, ty, -distance_m, lon0, lat0)
-    lon_lt, lat_lt = offset_along_dir(j["lon"], j["lat"], px, py,  distance_m, lon0, lat0)
-    lon_rt, lat_rt = offset_along_dir(j["lon"], j["lat"], px, py, -distance_m, lon0, lat0)
-
-    approach_rows += [
-        {"jct_id": j["id"], "approach": "UP", "lon": lon_up, "lat": lat_up, "approach_congestion_level": levels["UP"]},
-        {"jct_id": j["id"], "approach": "DN", "lon": lon_dn, "lat": lat_dn, "approach_congestion_level": levels["DN"]},
-        {"jct_id": j["id"], "approach": "LT", "lon": lon_lt, "lat": lat_lt, "approach_congestion_level": levels["LT"]},
-        {"jct_id": j["id"], "approach": "RT", "lon": lon_rt, "lat": lat_rt, "approach_congestion_level": levels["RT"]},
-    ]
-
-approaches = pd.DataFrame(approach_rows)
-
-# =========================================================
-# 4) Controls
-# =========================================================
-st.sidebar.header("Filters")
-threshold = st.sidebar.slider("Oversaturation threshold", 0.0, 1.0, 0.80, 0.05)
-show_only_oversat = st.sidebar.checkbox("Show only oversaturated intersections", value=False)
-
-# approach marker distance tuning
-distance_m_ui = st.sidebar.slider("Approach marker distance (m)", 10, 80, int(distance_m), 5)
-if distance_m_ui != distance_m:
-    distance_m = distance_m_ui
-    # regenerate approaches with the new distance
-    approach_rows = []
-    for _, j in intersections.iterrows():
-        tx, ty = float(j["tx"]), float(j["ty"])
-        px, py = -ty, tx
-
-        base = float(j["congestion_level"])
-        levels = {
-            "UP": min(1.0, base + 0.05),
-            "DN": max(0.0, base - 0.10),
-            "LT": min(1.0, base + 0.10),
-            "RT": max(0.0, base - 0.05),
-        }
-
-        lon_up, lat_up = offset_along_dir(j["lon"], j["lat"], tx, ty,  distance_m, lon0, lat0)
-        lon_dn, lat_dn = offset_along_dir(j["lon"], j["lat"], tx, ty, -distance_m, lon0, lat0)
-        lon_lt, lat_lt = offset_along_dir(j["lon"], j["lat"], px, py,  distance_m, lon0, lat0)
-        lon_rt, lat_rt = offset_along_dir(j["lon"], j["lat"], px, py, -distance_m, lon0, lat0)
-
-        approach_rows += [
-            {"jct_id": j["id"], "approach": "UP", "lon": lon_up, "lat": lat_up, "approach_congestion_level": levels["UP"]},
-            {"jct_id": j["id"], "approach": "DN", "lon": lon_dn, "lat": lat_dn, "approach_congestion_level": levels["DN"]},
-            {"jct_id": j["id"], "approach": "LT", "lon": lon_lt, "lat": lat_lt, "approach_congestion_level": levels["LT"]},
-            {"jct_id": j["id"], "approach": "RT", "lon": lon_rt, "lat": lat_rt, "approach_congestion_level": levels["RT"]},
-        ]
-    approaches = pd.DataFrame(approach_rows)
-
-df_jct = intersections.copy()
-if show_only_oversat:
-    df_jct = df_jct[df_jct["congestion_level"] >= threshold].reset_index(drop=True)
-
-# =========================================================
-# 5) Color helper: green -> red (simple)
-# =========================================================
-def level_to_rgba(level: float):
-    r = int(220 * level)
-    g = int(200 * (1 - level))
-    b = 0
-    return [r, g, b, 180]
-
-df_jct["color"] = df_jct["congestion_level"].apply(level_to_rgba)
-df_jct["radius"] = (200 + 1200 * df_jct["congestion_level"]).astype(int)
-
-approaches["color"] = approaches["approach_congestion_level"].apply(level_to_rgba)
-approaches["radius"] = (80 + 400 * approaches["approach_congestion_level"]).astype(int)
-
-# =========================================================
-# 6) PyDeck Layers
-#    - Base map hidden: map_style = None
-# =========================================================
-corridor_layer = pdk.Layer(
-    "PathLayer",
-    corridors,
-    get_path="path",
-    get_width=10,          # thicker line
-    width_min_pixels=4,
-    get_color=[30, 144, 255, 200],
-    pickable=True,
-)
-
-intersection_layer = pdk.Layer(
-    "ScatterplotLayer",
-    df_jct,
-    get_position="[lon, lat]",
-    get_fill_color="color",
-    get_radius="radius",
-    pickable=True,
-)
-
-approach_layer = pdk.Layer(
-    "ScatterplotLayer",
-    approaches,
-    get_position="[lon, lat]",
-    get_fill_color="color",
-    get_radius="radius",
-    pickable=True,
-)
-
-# View: center around Chennai
-view_state = pdk.ViewState(latitude=13.0500, longitude=80.2500, zoom=10, pitch=0, bearing=0)
-
-tooltip = {
-    "html": """
-    <b>ID:</b> {id}{jct_id}<br/>
-    <b>Name:</b> {name}<br/>
-    <b>Approach:</b> {approach}<br/>
-    <b>Congestion:</b> {congestion_level}{approach_congestion_level}
-    """,
-    "style": {"backgroundColor": "black", "color": "white"},
+# -----------------------------
+# Dummy data generators
+# -----------------------------
+STATUS = ["OK", "WARN", "ALARM", "OFFLINE"]
+STATUS_COLOR = {
+    "OK": "#2e7d32",
+    "WARN": "#f9a825",
+    "ALARM": "#c62828",
+    "OFFLINE": "#546e7a",
 }
 
-deck = pdk.Deck(
-    layers=[corridor_layer, intersection_layer, approach_layer],
-    initial_view_state=view_state,
-    map_style=None,  # hide base map
-    tooltip=tooltip,
-)
+def gen_stations():
+    # A small canal network (dummy)
+    nodes = [
+        {"id": "HW", "label": "Headworks", "type": "Hub"},
+        {"id": "B.Sd.1", "label": "B.Sd.1", "type": "TC"},
+        {"id": "B.Sd.3", "label": "B.Sd.3", "type": "SPC"},
+        {"id": "B.Cpl.1.4", "label": "B.Cpl.1.4", "type": "SPC"},
+        {"id": "B.Bt.15", "label": "B.Bt.15", "type": "SPC"},
+        {"id": "B.Ut.10", "label": "B.Ut.10", "type": "SPC"},
+        {"id": "B.Cpl.5", "label": "B.Cpl.5", "type": "TC"},
+        {"id": "B.Gs.11", "label": "B.Gs.11", "type": "SPC"},
+        {"id": "B.Bt.4", "label": "B.Bt.4", "type": "Gate"},
+        {"id": "B.Bt.21", "label": "B.Bt.21", "type": "Gate"},
+    ]
 
-st.pydeck_chart(deck, use_container_width=True)
+    # Assign random statuses (but keep HW mostly OK)
+    for n in nodes:
+        if n["id"] == "HW":
+            n["status"] = "OK"
+        else:
+            n["status"] = random.choices(STATUS, weights=[70, 15, 10, 5])[0]
 
-# =========================================================
-# 7) Oversaturation list (incident candidates)
-# =========================================================
-st.subheader("Oversaturated Intersections (incident candidates)")
-alerts = intersections[intersections["congestion_level"] >= threshold][["id", "name", "congestion_level"]].sort_values(
-    "congestion_level", ascending=False
-)
-st.dataframe(alerts, use_container_width=True)
+        # Additional operational context (dummy)
+        n["mode"] = random.choices(
+            ["AUTO", "MANUAL", "PROGRAM"], weights=[65, 20, 15]
+        )[0]
+        n["last_update"] = datetime.now() - timedelta(seconds=random.randint(5, 1800))
+        n["comm_rtt_ms"] = random.randint(20, 450) if n["status"] != "OFFLINE" else None
 
-# Debug (optional)
-with st.expander("Debug: snapped intersection coordinates"):
-    st.dataframe(intersections[["id", "name", "lon", "lat", "tx", "ty", "congestion_level"]], use_container_width=True)
+    edges = [
+        ("HW", "B.Sd.1"),
+        ("HW", "B.Sd.3"),
+        ("B.Sd.3", "B.Cpl.1.4"),
+        ("B.Cpl.1.4", "B.Bt.15"),
+        ("B.Bt.15", "B.Ut.10"),
+        ("HW", "B.Cpl.5"),
+        ("B.Cpl.5", "B.Gs.11"),
+        ("B.Gs.11", "B.Bt.4"),
+        ("B.Gs.11", "B.Bt.21"),
+    ]
+    return nodes, edges
+
+def gen_alarms(nodes):
+    rows = []
+    now = datetime.now()
+    alarm_types = ["COMM_LOSS", "WL_HIGH", "WL_LOW", "MODE_MISMATCH", "POWER", "SENSOR_FAULT"]
+    for _ in range(25):
+        n = random.choice(nodes)
+        sev = random.choices(["CRITICAL", "WARNING"], weights=[35, 65])[0]
+        ack = random.choices([True, False], weights=[70, 30])[0]
+        rows.append({
+            "Time": now - timedelta(minutes=random.randint(1, 1440)),
+            "Station": n["id"],
+            "Severity": sev,
+            "Type": random.choice(alarm_types),
+            "Message": f"{random.choice(alarm_types)} detected at {n['id']}",
+            "Ack": "Yes" if ack else "No",
+        })
+    df = pd.DataFrame(rows).sort_values("Time", ascending=False)
+    return df
+
+def gen_direction_targets():
+    # Direction-level control targets (dummy)
+    directions = ["Direction A", "Direction B", "Direction C"]
+    rows = []
+    for d in directions:
+        q_plan = random.randint(80, 140)
+        q_act = q_plan + random.randint(-20, 25)
+        dev = (q_act - q_plan) / q_plan * 100
+        rows.append({
+            "Direction": d,
+            "Q_plan (m3/s)": q_plan,
+            "Q_actual (m3/s)": q_act,
+            "Deviation (%)": round(dev, 1),
+        })
+    return pd.DataFrame(rows)
+
+# -----------------------------
+# UI helpers
+# -----------------------------
+def status_badge(status: str) -> str:
+    c = STATUS_COLOR.get(status, "#607d8b")
+    return f"<span style='background:{c};color:white;padding:2px 8px;border-radius:12px;font-size:12px;'>{status}</span>"
+
+def mode_badge(mode: str) -> str:
+    m = {"AUTO":"#1565c0","MANUAL":"#6a1b9a","PROGRAM":"#2e7d32"}.get(mode, "#455a64")
+    return f"<span style='background:{m};color:white;padding:2px 8px;border-radius:12px;font-size:12px;'>{mode}</span>"
+
+def build_graphviz(nodes, edges, highlight=None):
+    # Graphviz DOT with colored nodes by status
+    lines = ["digraph G {", "rankdir=LR;", "splines=true;", "nodesep=0.5;", "ranksep=0.7;"]
+    lines.append('node [shape=circle style=filled fontname="Helvetica" fontsize=10];')
+
+    for n in nodes:
+        fill = STATUS_COLOR[n["status"]]
+        border = "#000000"
+        penw = 3 if highlight and n["id"] == highlight else 1
+        label = f'{n["id"]}\\n{n["type"]}'
+        lines.append(f'"{n["id"]}" [label="{label}" fillcolor="{fill}" color="{border}" penwidth={penw}];')
+
+    # Edge color by "link health" (simplified: if either endpoint offline -> grey)
+    node_map = {n["id"]: n for n in nodes}
+    for a, b in edges:
+        ca = node_map[a]["status"]
+        cb = node_map[b]["status"]
+        if "OFFLINE" in (ca, cb):
+            ec = "#90a4ae"
+            style = "dashed"
+        elif "ALARM" in (ca, cb):
+            ec = "#c62828"
+            style = "bold"
+        elif "WARN" in (ca, cb):
+            ec = "#f9a825"
+            style = "bold"
+        else:
+            ec = "#1e88e5"
+            style = "solid"
+        lines.append(f'"{a}" -> "{b}" [color="{ec}" style="{style}"];')
+
+    lines.append("}")
+    return "\n".join(lines)
+
+# -----------------------------
+# Sidebar controls
+# -----------------------------
+st.sidebar.title("WMS Control System")
+refresh = st.sidebar.button("Refresh (Dummy Update)")
+filter_status = st.sidebar.multiselect("Filter by Status", STATUS, default=STATUS)
+filter_mode = st.sidebar.multiselect("Filter by Mode", ["AUTO", "MANUAL", "PROGRAM"], default=["AUTO","MANUAL","PROGRAM"])
+search_station = st.sidebar.text_input("Search Station ID", value="")
+
+# -----------------------------
+# Data init
+# -----------------------------
+if "seed" not in st.session_state:
+    st.session_state.seed = 1
+if refresh:
+    st.session_state.seed += 1
+random.seed(st.session_state.seed)
+
+nodes, edges = gen_stations()
+alarms = gen_alarms(nodes)
+direction_df = gen_direction_targets()
+
+# Apply filters
+filtered_nodes = []
+for n in nodes:
+    if n["status"] not in filter_status:
+        continue
+    if n["mode"] not in filter_mode:
+        continue
+    if search_station and search_station.lower() not in n["id"].lower():
+        continue
+    filtered_nodes.append(n)
+
+# For visualization, keep edges whose nodes remain
+filtered_ids = {n["id"] for n in filtered_nodes}
+filtered_edges = [(a,b) for (a,b) in edges if a in filtered_ids and b in filtered_ids]
+
+# KPI calculation
+def count_by(nodes, key, value):
+    return sum(1 for n in nodes if n.get(key) == value)
+
+now = datetime.now()
+last_update = max([n["last_update"] for n in nodes])
+staleness_sec = int((now - last_update).total_seconds())
+
+critical_cnt = (alarms["Severity"] == "CRITICAL").sum()
+warning_cnt = (alarms["Severity"] == "WARNING").sum()
+unack_cnt = (alarms["Ack"] == "No").sum()
+
+offline_cnt = count_by(nodes, "status", "OFFLINE")
+alarm_node_cnt = count_by(nodes, "status", "ALARM")
+warn_node_cnt = count_by(nodes, "status", "WARN")
+ok_node_cnt = count_by(nodes, "status", "OK")
+
+# -----------------------------
+# Header
+# -----------------------------
+left, mid, right = st.columns([2, 5, 2])
+with left:
+    st.markdown("### CYBER CONTROL")
+with mid:
+    st.markdown(
+        f"**{now.strftime('%d/%m/%Y, %H:%M:%S')}** &nbsp;&nbsp;|&nbsp;&nbsp; "
+        f"Last Data Update: **{last_update.strftime('%H:%M:%S')}** "
+        f"(staleness **{staleness_sec}s**)"
+    )
+with right:
+    st.markdown("**System Status:** Active")
+    st.caption("Mode: Monitoring")
+
+# -----------------------------
+# Top KPIs
+# -----------------------------
+k1, k2, k3, k4, k5, k6 = st.columns(6)
+k1.metric("Stations OK", ok_node_cnt)
+k2.metric("Stations WARN", warn_node_cnt)
+k3.metric("Stations ALARM", alarm_node_cnt)
+k4.metric("Stations OFFLINE", offline_cnt)
+k5.metric("Alarms (CRIT/WARN)", f"{critical_cnt}/{warning_cnt}")
+k6.metric("Unack Alarms", unack_cnt)
+
+st.divider()
+
+# -----------------------------
+# Main layout
+# -----------------------------
+colA, colB = st.columns([7, 4])
+
+with colA:
+    st.markdown("## SYSTEM SCHEMA")
+    st.caption("Interactive (Prototype): status-colored topology + drill-down selection")
+
+    # Selection (simulate click by dropdown for now)
+    station_ids = [n["id"] for n in nodes]
+    selected = st.selectbox("Select Station (Drill-down)", options=["(none)"] + station_ids, index=0)
+
+    dot = build_graphviz(filtered_nodes, filtered_edges, highlight=None if selected=="(none)" else selected)
+    st.graphviz_chart(dot, use_container_width=True)
+
+    st.markdown("### Direction Control Targets (Plan vs Actual)")
+    # Show Direction targets with visual cues
+    def dev_style(v):
+        if abs(v) >= 15: return "background-color: rgba(198,40,40,0.15);"
+        if abs(v) >= 8:  return "background-color: rgba(249,168,37,0.15);"
+        return "background-color: rgba(46,125,50,0.10);"
+    styled = direction_df.style.applymap(lambda v: dev_style(v) if isinstance(v, (int,float)) else "", subset=["Deviation (%)"])
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+
+with colB:
+    st.markdown("## Operator Console")
+
+    # Quick status panel
+    st.markdown("### Quick Situation")
+    st.write(
+        f"- Communication: **{len(nodes)-offline_cnt}/{len(nodes)} online**\n"
+        f"- Alarms: **{critical_cnt} critical**, **{warning_cnt} warning**, **{unack_cnt} unack**\n"
+        f"- Data Freshness: **{staleness_sec}s** since last update"
+    )
+
+    # Actionable tasks (dummy rules)
+    st.markdown("### Action List (Suggested)")
+    actions = []
+    if offline_cnt > 0:
+        actions.append(f"Check communication: **{offline_cnt} station(s) OFFLINE**")
+    if unack_cnt > 0:
+        actions.append(f"Acknowledge alarms: **{unack_cnt} unacknowledged**")
+    # Direction deviation suggestions
+    worst = direction_df.iloc[(direction_df["Deviation (%)"].abs()).argsort()[::-1]].head(1).iloc[0]
+    if abs(worst["Deviation (%)"]) >= 10:
+        actions.append(f"Investigate deviation: **{worst['Direction']}** ({worst['Deviation (%)']}%)")
+    if not actions:
+        actions = ["No urgent action suggested (dummy)."]
+    for a in actions[:5]:
+        st.write(f"• {a}")
+
+    st.divider()
+
+    # Recent alarms
+    st.markdown("### Recent Alarms (Top 10)")
+    top10 = alarms.head(10).copy()
+    top10["Time"] = top10["Time"].dt.strftime("%m/%d %H:%M")
+    st.dataframe(top10, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # Selected station details
+    st.markdown("### Station Detail")
+    if selected != "(none)":
+        n = next(x for x in nodes if x["id"] == selected)
+        st.markdown(
+            f"**Station:** {n['id']} &nbsp;&nbsp; "
+            f"**Type:** {n['type']} &nbsp;&nbsp; "
+            f"**Status:** {status_badge(n['status'])} &nbsp;&nbsp; "
+            f"**Mode:** {mode_badge(n['mode'])}",
+            unsafe_allow_html=True
+        )
+        st.write(f"- Last update: {n['last_update'].strftime('%Y-%m-%d %H:%M:%S')}")
+        st.write(f"- Comm RTT: {n['comm_rtt_ms']} ms" if n["comm_rtt_ms"] else "- Comm RTT: (N/A)")
+        st.write("- Shortcut: Gate Control / Monitoring / Alarm Viewer (to be wired)")
+        c1, c2, c3 = st.columns(3)
+        c1.button("Open Gate Control", use_container_width=True)
+        c2.button("Open Monitoring", use_container_width=True)
+        c3.button("Open Alarms", use_container_width=True)
+    else:
+        st.caption("Select a station to show details and drill-down actions.")
+
+st.caption("Prototype note: This is a UI skeleton with dummy data. Replace generators with API/DB later.")
