@@ -1,0 +1,386 @@
+{
+  "l01": {
+    "length_m": 5450,
+    "seg_count": 55,
+    "from": "Avadi",
+    "to": "Ambattur"
+  },
+  "l02": {
+    "length_m": 7473,
+    "seg_count": 75,
+    "from": "Ambattur",
+    "to": "Anna Nagar"
+  },
+  "l03": {
+    "length_m": 2399,
+    "seg_count": 24,
+    "from": "Anna Nagar",
+    "to": "Koyambedu"
+  },
+  "l04": {
+    "length_m": 8886,
+    "seg_count": 89,
+    "from": "Koyambedu",
+    "to": "Chennai Central"
+  },
+  "l05": {
+    "length_m": 7007,
+    "seg_count": 71,
+    "from": "Poonamallee",
+    "to": "Porur"
+  },
+  "l06": {
+    "length_m": 5693,
+    "seg_count": 57,
+    "from": "Porur",
+    "to": "Koyambedu"
+  },
+  "l07": {
+    "length_m": 4921,
+    "seg_count": 50,
+    "from": "Porur",
+    "to": "Kathipara"
+  },
+  "l08": {
+    "length_m": 6178,
+    "seg_count": 62,
+    "from": "Kathipara",
+    "to": "Koyambedu"
+  },
+  "l09": {
+    "length_m": 2312,
+    "seg_count": 24,
+    "from": "Kathipara",
+    "to": "Guindy"
+  },
+  "l10": {
+    "length_m": 3259,
+    "seg_count": 33,
+    "from": "Guindy",
+    "to": "Velachery"
+  },
+  "l11": {
+    "length_m": 2938,
+    "seg_count": 30,
+    "from": "Guindy",
+    "to": "Madhya Kailash"
+  },
+  "l12": {
+    "length_m": 1327,
+    "seg_count": 14,
+    "from": "Madhya Kailash",
+    "to": "Adyar"
+  },
+  "l13": {
+    "length_m": 8617,
+    "seg_count": 87,
+    "from": "Chennai Central",
+    "to": "Madhya Kailash"
+  },
+  "l14": {
+    "length_m": 2247,
+    "seg_count": 23,
+    "from": "Madhya Kailash",
+    "to": "Tidel Park"
+  },
+  "l15": {
+    "length_m": 1666,
+    "seg_count": 17,
+    "from": "Tidel Park",
+    "to": "Taramani"
+  },
+  "l16": {
+    "length_m": 2444,
+    "seg_count": 25,
+    "from": "Taramani",
+    "to": "Velachery"
+  },
+  "l17": {
+    "length_m": 5080,
+    "seg_count": 51,
+    "from": "Taramani",
+    "to": "Thoraipakkam"
+  },
+  "l18": {
+    "length_m": 4121,
+    "seg_count": 42,
+    "from": "Adyar",
+    "to": "Perungudi"
+  },
+  "l19": {
+    "length_m": 2051,
+    "seg_count": 21,
+    "from": "Sholinganallur",
+    "to": "SRM Nagar"
+  },
+  "l20": {
+    "length_m": 9050,
+    "seg_count": 91,
+    "from": "Velachery",
+    "to": "Chromepet"
+  },
+  "l21": {
+    "length_m": 2083,
+    "seg_count": 21,
+    "from": "Chromepet",
+    "to": "Pallavaram"
+  },
+  "l22": {
+    "length_m": 5706,
+    "seg_count": 58,
+    "from": "Pallavaram",
+    "to": "Tambaram"
+  },
+  "l23": {
+    "length_m": 3625,
+    "seg_count": 37,
+    "from": "Tambaram",
+    "to": "Chromepet"
+  },
+  "l24": {
+    "length_m": 3672,
+    "seg_count": 37,
+    "from": "Royapuram",
+    "to": "Chennai Central"
+  },
+  "l25": {
+    "length_m": 5280,
+    "seg_count": 53,
+    "from": "Royapuram",
+    "to": "Perambur"
+  },
+  "l26": {
+    "length_m": 4608,
+    "seg_count": 47,
+    "from": "Perambur",
+    "to": "Egmore"
+  },
+  "l27": {
+    "length_m": 10572,
+    "seg_count": 106,
+    "from": "Perambur",
+    "to": "Ambattur"
+  },
+  "l28": {
+    "length_m": 1563,
+    "seg_count": 16,
+    "from": "Chennai Central",
+    "to": "Egmore"
+  },
+  "l29": {
+    "length_m": 4566,
+    "seg_count": 46,
+    "from": "Chennai Central",
+    "to": "Nungambakkam"
+  },
+  "l30": {
+    "length_m": 2378,
+    "seg_count": 24,
+    "from": "Nungambakkam",
+    "to": "T. Nagar"
+  },
+  "l31": {
+    "length_m": 2569,
+    "seg_count": 26,
+    "from": "Koyambedu",
+    "to": "Vadapalani"
+  },
+  "l32": {
+    "length_m": 2741,
+    "seg_count": 28,
+    "from": "Vadapalani",
+    "to": "T. Nagar"
+  },
+  "l33": {
+    "length_m": 3037,
+    "seg_count": 31,
+    "from": "T. Nagar",
+    "to": "Saidapet"
+  },
+  "l34": {
+    "length_m": 798,
+    "seg_count": 8,
+    "from": "Saidapet",
+    "to": "Guindy"
+  },
+  "l35": {
+    "length_m": 2514,
+    "seg_count": 26,
+    "from": "Saidapet",
+    "to": "Kathipara"
+  },
+  "l36": {
+    "length_m": 5541,
+    "seg_count": 56,
+    "from": "Chennai Central",
+    "to": "Mylapore"
+  },
+  "l37": {
+    "length_m": 3717,
+    "seg_count": 38,
+    "from": "Mylapore",
+    "to": "Adyar"
+  },
+  "l38": {
+    "length_m": 1517,
+    "seg_count": 16,
+    "from": "Adyar",
+    "to": "Besant Nagar"
+  },
+  "l39": {
+    "length_m": 2311,
+    "seg_count": 24,
+    "from": "Besant Nagar",
+    "to": "Thiruvanmiyur"
+  },
+  "l40": {
+    "length_m": 6263,
+    "seg_count": 63,
+    "from": "Thiruvanmiyur",
+    "to": "Thoraipakkam"
+  },
+  "l41": {
+    "length_m": 4147,
+    "seg_count": 42,
+    "from": "Perungudi",
+    "to": "Thoraipakkam"
+  },
+  "l42": {
+    "length_m": 3409,
+    "seg_count": 35,
+    "from": "Thoraipakkam",
+    "to": "Sholinganallur"
+  },
+  "l43": {
+    "length_m": 2502,
+    "seg_count": 26,
+    "from": "Pallikaranai",
+    "to": "Thoraipakkam"
+  },
+  "l44": {
+    "length_m": 4450,
+    "seg_count": 45,
+    "from": "Velachery",
+    "to": "Pallikaranai"
+  },
+  "l45": {
+    "length_m": 3346,
+    "seg_count": 34,
+    "from": "Ennore",
+    "to": "Royapuram"
+  },
+  "l46": {
+    "length_m": 3568,
+    "seg_count": 36,
+    "from": "Madhavaram",
+    "to": "Perambur"
+  },
+  "l47": {
+    "length_m": 7509,
+    "seg_count": 76,
+    "from": "Madhavaram",
+    "to": "Ennore"
+  },
+  "l48": {
+    "length_m": 9247,
+    "seg_count": 93,
+    "from": "Redhills",
+    "to": "Ambattur"
+  },
+  "l49": {
+    "length_m": 8870,
+    "seg_count": 89,
+    "from": "Redhills",
+    "to": "Madhavaram"
+  },
+  "l50": {
+    "length_m": 3627,
+    "seg_count": 37,
+    "from": "Mogappair",
+    "to": "Ambattur"
+  },
+  "l51": {
+    "length_m": 3961,
+    "seg_count": 40,
+    "from": "Mogappair",
+    "to": "Anna Nagar"
+  },
+  "l52": {
+    "length_m": 6282,
+    "seg_count": 63,
+    "from": "Maduravoyal",
+    "to": "Poonamallee"
+  },
+  "l53": {
+    "length_m": 4623,
+    "seg_count": 47,
+    "from": "Maduravoyal",
+    "to": "Koyambedu"
+  },
+  "l54": {
+    "length_m": 3274,
+    "seg_count": 33,
+    "from": "Maduravoyal",
+    "to": "Porur"
+  },
+  "l55": {
+    "length_m": 2059,
+    "seg_count": 21,
+    "from": "Teynampet",
+    "to": "T. Nagar"
+  },
+  "l56": {
+    "length_m": 4836,
+    "seg_count": 49,
+    "from": "Teynampet",
+    "to": "Saidapet"
+  },
+  "l57": {
+    "length_m": 1452,
+    "seg_count": 15,
+    "from": "Teynampet",
+    "to": "Nungambakkam"
+  },
+  "l58": {
+    "length_m": 4586,
+    "seg_count": 46,
+    "from": "Medavakkam",
+    "to": "Velachery"
+  },
+  "l59": {
+    "length_m": 1482,
+    "seg_count": 15,
+    "from": "Medavakkam",
+    "to": "Pallikaranai"
+  },
+  "l60": {
+    "length_m": 4728,
+    "seg_count": 48,
+    "from": "Vandalur",
+    "to": "Tambaram"
+  },
+  "l61": {
+    "length_m": 6680,
+    "seg_count": 67,
+    "from": "Vandalur",
+    "to": "Guduvanchery"
+  },
+  "l62": {
+    "length_m": 8081,
+    "seg_count": 81,
+    "from": "Kelambakkam",
+    "to": "SRM Nagar"
+  },
+  "l63": {
+    "length_m": 15921,
+    "seg_count": 160,
+    "from": "Kelambakkam",
+    "to": "Guduvanchery"
+  },
+  "l64": {
+    "length_m": 9317,
+    "seg_count": 94,
+    "from": "Guduvanchery",
+    "to": "Tambaram"
+  }
+}

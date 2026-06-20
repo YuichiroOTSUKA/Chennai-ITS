@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chennai ITS — Schematic Map v3</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#020810; overflow:hidden; font-family:'Segoe UI',system-ui,sans-serif; }
+#root { width:100vw; height:100vh; }
+@keyframes pulse-node {
+  0%,100% { opacity:.9; stroke-width:1.5px; }
+  50%      { opacity:.15; stroke-width:3px; }
+}
+@keyframes blink-crit {
+  0%,49%  { opacity:1; }
+  50%,100% { opacity:.3; }
+}
+@keyframes scan-sweep {
+  0%   { top:-4px; }
+  100% { top:100vh; }
+}
+@keyframes pulse-dot {
+  0%,100% { opacity:1; box-shadow:0 0 6px currentColor; }
+  50%      { opacity:.35; box-shadow:none; }
+}
+.scan-bar {
+  position:fixed; left:0; right:0; height:3px; z-index:999; pointer-events:none;
+  background:linear-gradient(transparent, rgba(0,150,255,.06), transparent);
+  animation:scan-sweep 5s linear infinite;
+}
+.live-dot { animation:pulse-dot 2s infinite; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+// ═══════════════════════════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════════════════════════
+const CANVAS_W    = 3200;
+const CANVAS_H    = 2200;
+const HALF_SEP    = 12;    // px from centerline → 24px center-to-center, ~20px inner gap
+const TRIM        = 26;    // px trim from node center
+const FWD_W       = 5.5;   // forward stroke width (bold = outbound)
+const BWD_W       = 3.0;   // backward stroke width (thin = inbound)
+const NODE_R      = 7;
+const FONT_SZ     = 11;
+const SEG_GAP     = 2.5;   // px gap between color segments
+const POLL_MS     = 30_000; // API polling interval
+const API_BASE    = 'http://localhost:8100';
+
+const CONG = {
+  free:     '#00ff88',
+  moderate: '#ffdd00',
+  heavy:    '#ff8800',
+  severe:   '#ff2200',
+};
+
+const btnStyle = {
+  width:28, height:28, fontSize:13, cursor:'pointer',
+  background:'rgba(8,16,40,0.9)', border:'1px solid #1a3366',
+  borderRadius:4, color:'#88aacc', display:'flex',
+  alignItems:'center', justifyContent:'center', lineHeight:1,
+};
+
+// ═══════════════════════════════════════════════════════════
+//  NODE DATA  (grid-based schematic layout, 3200×2200)
+// ═══════════════════════════════════════════════════════════
+const RAW_NODES = [
+  { id:'perambur',       short:'PRB',  label:'Perambur'        },
+  { id:'royapuram',      short:'RPM',  label:'Royapuram'       },
+  { id:'central',        short:'CNT',  label:'Central'         },
+  { id:'egmore',         short:'EGM',  label:'Egmore'          },
+  { id:'nungambakkam',   short:'NUN',  label:'Nungambakkam'    },
+  { id:'anna_nagar',     short:'ANN',  label:'Anna Nagar'      },
+  { id:'koyambedu',      short:'KYB',  label:'Koyambedu'       },
+  { id:'vadapalani',     short:'VDP',  label:'Vadapalani'      },
+  { id:'tnagar',         short:'TNG',  label:'T.Nagar'         },
+  { id:'mylapore',       short:'MYL',  label:'Mylapore'        },
+  { id:'saidapet',       short:'SAI',  label:'Saidapet'        },
+  { id:'guindy',         short:'GDY',  label:'Guindy'          },
+  { id:'madhya_kailash', short:'MDK',  label:'Madhya Kailash'  },
+  { id:'adyar',          short:'ADY',  label:'Adyar'           },
+  { id:'besant_nagar',   short:'BST',  label:'Besant Nagar'    },
+  { id:'porur',          short:'POR',  label:'Porur'           },
+  { id:'kathipara',      short:'KAT',  label:'Kathipara'       },
+  { id:'tidel_park',     short:'TDP',  label:'Tidel Park'      },
+  { id:'velachery',      short:'VEL',  label:'Velachery'       },
+  { id:'perungudi',      short:'PRG',  label:'Perungudi'       },
+  // new
+  { id:'ambattur',       short:'AMB',  label:'Ambattur'        },
+  { id:'villivakkam',    short:'VLV',  label:'Villivakkam'     },
+  { id:'tondiarpet',     short:'TNP',  label:'Tondiarpet'      },
+  { id:'padi',           short:'PDI',  label:'Padi'            },
+  { id:'triplicane',     short:'TRP',  label:'Triplicane'      },
+  { id:'mogappair',      short:'MGP',  label:'Mogappair'       },
+  { id:'thiruvanmiyur',  short:'TVM',  label:'Thiruvanmiyur'   },
+  { id:'neelankarai',    short:'NLK',  label:'Neelankarai'     },
+  { id:'sholinganallur', short:'SLR',  label:'Sholinganallur'  },
+  { id:'pallavaram',     short:'PLV',  label:'Pallavaram'      },
+  { id:'chromepet',      short:'CRP',  label:'Chromepet'       },
+  { id:'tambaram',       short:'TBR',  label:'Tambaram'        },
+];
+
+// Hand-crafted grid positions on 3200×2200 canvas (existing nodes +300x +300y)
+// Designed for clarity, NOT geographic accuracy
+const NODE_XY = {
+  perambur:       [1400,  420],
+  royapuram:      [2000,  420],
+  central:        [1700,  660],
+  egmore:         [2140,  880],
+  nungambakkam:   [1400,  880],
+  anna_nagar:     [ 920, 1020],
+  koyambedu:      [ 560, 1200],
+  vadapalani:     [1140, 1200],
+  tnagar:         [1580, 1200],
+  mylapore:       [2140, 1200],
+  saidapet:       [1260, 1410],
+  guindy:         [1500, 1410],
+  madhya_kailash: [1860, 1410],
+  adyar:          [2140, 1410],
+  besant_nagar:   [2480, 1410],
+  porur:          [ 500, 1640],
+  kathipara:      [ 800, 1640],
+  tidel_park:     [1860, 1660],
+  velachery:      [ 960, 1860],
+  perungudi:      [2140, 1860],
+  // new nodes
+  ambattur:       [ 260,   80],
+  villivakkam:    [ 900,   80],
+  tondiarpet:     [2600,   80],
+  padi:           [ 440,  360],
+  triplicane:     [2600,  660],
+  mogappair:      [ 200,  700],
+  thiruvanmiyur:  [2800, 1500],
+  neelankarai:    [3000, 1660],
+  sholinganallur: [2700, 1900],
+  pallavaram:     [ 900, 2000],
+  chromepet:      [ 520, 2000],
+  tambaram:       [ 240, 2000],
+};
+
+// ═══════════════════════════════════════════════════════════
+//  LINK DATA  (segments generated deterministically)
+// ═══════════════════════════════════════════════════════════
+const LINK_DEFS = [
+  ['l01','perambur',     'central'        ],
+  ['l02','perambur',     'royapuram'      ],
+  ['l03','royapuram',    'central'        ],
+  ['l04','central',      'egmore'         ],
+  ['l05','egmore',       'nungambakkam'   ],
+  ['l06','nungambakkam', 'tnagar'         ],
+  ['l07','tnagar',       'saidapet'       ],
+  ['l08','saidapet',     'guindy'         ],
+  ['l09','guindy',       'kathipara'      ],
+  ['l10','central',      'nungambakkam'   ],
+  ['l11','nungambakkam', 'anna_nagar'     ],
+  ['l12','anna_nagar',   'koyambedu'      ],
+  ['l13','koyambedu',    'vadapalani'     ],
+  ['l14','koyambedu',    'porur'          ],
+  ['l15','porur',        'kathipara'      ],
+  ['l16','vadapalani',   'tnagar'         ],
+  ['l17','nungambakkam', 'vadapalani'     ],
+  ['l18','tnagar',       'mylapore'       ],
+  ['l19','tnagar',       'kathipara'      ],
+  ['l20','mylapore',     'madhya_kailash' ],
+  ['l21','mylapore',     'adyar'          ],
+  ['l22','madhya_kailash','adyar'         ],
+  ['l23','adyar',        'besant_nagar'   ],
+  ['l24','adyar',        'tidel_park'     ],
+  ['l25','tidel_park',   'perungudi'      ],
+  ['l26','kathipara',    'velachery'      ],
+  ['l27','guindy',       'velachery'      ],
+  ['l28','velachery',    'perungudi'      ],
+  ['l29','saidapet',     'kathipara'      ],
+  ['l30','madhya_kailash','tidel_park'    ],
+  // new links (l31-l51)
+  ['l31','ambattur',     'villivakkam'    ],
+  ['l32','ambattur',     'padi'           ],
+  ['l33','villivakkam',  'perambur'       ],
+  ['l34','villivakkam',  'padi'           ],
+  ['l35','padi',         'anna_nagar'     ],
+  ['l36','padi',         'mogappair'      ],
+  ['l37','mogappair',    'anna_nagar'     ],
+  ['l38','mogappair',    'koyambedu'      ],
+  ['l39','tondiarpet',   'royapuram'      ],
+  ['l40','tondiarpet',   'triplicane'     ],
+  ['l41','triplicane',   'egmore'         ],
+  ['l42','triplicane',   'mylapore'       ],
+  ['l43','thiruvanmiyur','adyar'          ],
+  ['l44','thiruvanmiyur','neelankarai'    ],
+  ['l45','neelankarai',  'sholinganallur' ],
+  ['l46','sholinganallur','perungudi'     ],
+  ['l47','pallavaram',   'velachery'      ],
+  ['l48','pallavaram',   'chromepet'      ],
+  ['l49','chromepet',    'kathipara'      ],
+  ['l50','chromepet',    'tambaram'       ],
+  ['l51','tambaram',     'porur'          ],
+];
+
+const LINKS = LINK_DEFS.map(([id, from, to]) => ({ id, from, to }));
+
+// ═══════════════════════════════════════════════════════════
+//  GEOMETRY UTILS
+// ═══════════════════════════════════════════════════════════
+const dist  = (a,b) => Math.sqrt((b.x-a.x)**2+(b.y-a.y)**2);
+const vnorm = v => { const l=Math.sqrt(v.x*v.x+v.y*v.y)||1; return {x:v.x/l,y:v.y/l}; };
+const vperp = v => ({x:-v.y, y:v.x});  // 90° CCW (left-normal)
+
+// ═══════════════════════════════════════════════════════════
+//  1. buildHighResolutionSchematicLayout
+//     Assigns x,y from the preset grid and computes degrees.
+// ═══════════════════════════════════════════════════════════
+function buildHighResolutionSchematicLayout(rawNodes, links) {
+  const degree = {};
+  for(const lk of links) {
+    degree[lk.from] = (degree[lk.from]||0)+1;
+    degree[lk.to]   = (degree[lk.to]  ||0)+1;
+  }
+  return rawNodes.map(n => {
+    const [x,y] = NODE_XY[n.id] || [100,100];
+    return { ...n, x, y, degree: degree[n.id]||0 };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  2. routeLinkAsPolyline
+//     Prefers H/V/45° direct routing.
+//     For L-shapes, picks the option with max clearance from
+//     other nodes (avoids routing through occupied rows/cols).
+// ═══════════════════════════════════════════════════════════
+function routeLinkAsPolyline(fromNode, toNode, allNodes=[]) {
+  return [fromNode, toNode];
+}
+
+// ═══════════════════════════════════════════════════════════
+//  3. createParallelPolylinePair
+//     Offset each waypoint using miter join formula.
+//     Returns { forward: pts[], backward: pts[] }
+// ═══════════════════════════════════════════════════════════
+function createParallelPolylinePair(pts, halfSep) {
+  const n = pts.length;
+
+  // Compute left-normals for each segment
+  const segN = pts.slice(1).map((p,i) => {
+    const d = vnorm({x:p.x-pts[i].x, y:p.y-pts[i].y});
+    return vperp(d);
+  });
+
+  // Offset a single point using miter
+  function miterOffset(i, d) {
+    let n1, n2;
+    if (i===0)   { n1=segN[0];       n2=segN[0]; }
+    else if (i===n-1){ n1=segN[n-2]; n2=segN[n-2]; }
+    else          { n1=segN[i-1]; n2=segN[i]; }
+
+    const dot = n1.x*n2.x + n1.y*n2.y;
+    const denom = 1+dot;
+    let ox, oy;
+    if (Math.abs(denom)<0.05) {
+      ox=n1.x*d; oy=n1.y*d;             // degenerate / ~180° → cap
+    } else {
+      // Miter formula: offset = d*(n1+n2)/(1+n1·n2)
+      const raw = d/denom;
+      const len = Math.sqrt((n1.x+n2.x)**2+(n1.y+n2.y)**2)||1;
+      // Cap miter at 4× halfSep to prevent spikes
+      const cap = Math.min(Math.abs(raw), halfSep*4);
+      ox = (n1.x+n2.x)/len * cap * Math.sign(raw);
+      oy = (n1.y+n2.y)/len * cap * Math.sign(raw);
+    }
+    return { x:pts[i].x+ox, y:pts[i].y+oy };
+  }
+
+  const fwd = pts.map((_,i)=>miterOffset(i,  halfSep));
+  const bwd = pts.map((_,i)=>miterOffset(i, -halfSep));
+  return { forward:fwd, backward:bwd };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  4. splitPolylineBySegments
+//     Splits a polyline by arc-length into colored pieces.
+//     Adds SEG_GAP gaps at segment boundaries.
+// ═══════════════════════════════════════════════════════════
+function arcLengths(pts) {
+  const a=[0];
+  for(let i=1;i<pts.length;i++) a.push(a[i-1]+dist(pts[i-1],pts[i]));
+  return a;
+}
+
+function arcInterp(pts, arcs, target) {
+  const total=arcs[arcs.length-1];
+  if(target<=0)     return pts[0];
+  if(target>=total) return pts[pts.length-1];
+  for(let i=1;i<pts.length;i++) {
+    if(arcs[i]>=target) {
+      const t=(target-arcs[i-1])/(arcs[i]-arcs[i-1]);
+      return {x:pts[i-1].x+t*(pts[i].x-pts[i-1].x),
+              y:pts[i-1].y+t*(pts[i].y-pts[i-1].y)};
+    }
+  }
+  return pts[pts.length-1];
+}
+
+function splitPolylineBySegments(pts, segments) {
+  const arcs = arcLengths(pts);
+  const total = arcs[arcs.length-1];
+  const n = segments.length;
+  const pieces = [];
+
+  for(let si=0; si<n; si++) {
+    const a0 = (si/n)*total + (si>0   ? SEG_GAP : 0);
+    const a1 = ((si+1)/n)*total - (si<n-1 ? SEG_GAP : 0);
+    if(a1<=a0) continue;
+
+    const subPts=[arcInterp(pts,arcs,a0)];
+    // include original waypoints that fall strictly inside this segment
+    for(let i=0;i<pts.length;i++) {
+      if(arcs[i]>a0 && arcs[i]<a1) subPts.push(pts[i]);
+    }
+    subPts.push(arcInterp(pts,arcs,a1));
+
+    pieces.push({ points:subPts, congestion:segments[si].congestion });
+  }
+  return pieces;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  5. renderSegmentedDirectionalLine
+//     Given pieces [{points,congestion}], build SVG paths.
+// ═══════════════════════════════════════════════════════════
+function segPath(pts) {
+  if(pts.length<2) return '';
+  const d=pts.map((p,i)=>(i===0?`M${p.x.toFixed(1)},${p.y.toFixed(1)}`
+                                :`L${p.x.toFixed(1)},${p.y.toFixed(1)}`)).join(' ');
+  return d;
+}
+
+function renderSegmentedDirectionalLine(pieces, strokeW, opacity=1) {
+  return pieces.map((pc,i)=>(
+    <path key={i}
+      d={segPath(pc.points)}
+      stroke={CONG[pc.congestion]}
+      strokeWidth={strokeW}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+      opacity={opacity}
+    />
+  ));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  6. detectEdgeOverlap  (simplified: count crossings)
+// ═══════════════════════════════════════════════════════════
+function lineSeg(a1,a2,b1,b2) {
+  const d1x=a2.x-a1.x,d1y=a2.y-a1.y;
+  const d2x=b2.x-b1.x,d2y=b2.y-b1.y;
+  const cr=d1x*d2y-d1y*d2x;
+  if(Math.abs(cr)<1e-8) return false;
+  const dx=b1.x-a1.x,dy=b1.y-a1.y;
+  const t=(dx*d2y-dy*d2x)/cr;
+  const u=(dx*d1y-dy*d1x)/cr;
+  const eps=0.02;
+  return t>eps&&t<1-eps&&u>eps&&u<1-eps;
+}
+
+function detectEdgeOverlap(edgePairs) {
+  // edgePairs: [{pts:[{x,y},...], fromId, toId, linkId}]
+  let count=0;
+  for(let i=0;i<edgePairs.length;i++) {
+    for(let j=i+1;j<edgePairs.length;j++) {
+      const e1=edgePairs[i],e2=edgePairs[j];
+      if(e1.linkId===e2.linkId) continue;
+      if(e1.fromId===e2.fromId||e1.fromId===e2.toId||
+         e1.toId===e2.fromId  ||e1.toId===e2.toId) continue;
+      // check each segment pair
+      const p1=e1.pts,p2=e2.pts;
+      for(let a=1;a<p1.length&&!false;a++) {
+        for(let b=1;b<p2.length;b++) {
+          if(lineSeg(p1[a-1],p1[a],p2[b-1],p2[b])) { count++; break; }
+        }
+      }
+    }
+  }
+  return count;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  7. detectNodeOverlap
+// ═══════════════════════════════════════════════════════════
+function detectNodeOverlap(nodes) {
+  let count=0;
+  for(let i=0;i<nodes.length;i++)
+    for(let j=i+1;j<nodes.length;j++) {
+      if(dist(nodes[i],nodes[j]) < NODE_R*2+4) count++;
+    }
+  return count;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  8. optimizeLayoutUntilNoOverlap
+//     Nudge nodes to eliminate crossings & overlaps.
+// ═══════════════════════════════════════════════════════════
+function optimizeLayoutUntilNoOverlap(nodes, links) {
+  const MAX_D=40;
+  const adj = nodes.map(n=>({...n}));
+  const orig = Object.fromEntries(nodes.map(n=>[n.id,{x:n.x,y:n.y}]));
+
+  for(let iter=0;iter<200;iter++) {
+    const nm = Object.fromEntries(adj.map(n=>[n.id,n]));
+
+    // Build flat edge list for overlap detection
+    const edgePairs=[];
+    for(const lk of links) {
+      const A=nm[lk.from],B=nm[lk.to];
+      if(!A||!B) continue;
+      const route=routeLinkAsPolyline(A,B,adj);
+      const {forward,backward}=createParallelPolylinePair(route,HALF_SEP);
+      edgePairs.push({pts:forward, fromId:lk.from,toId:lk.to,linkId:lk.id});
+      edgePairs.push({pts:backward,fromId:lk.to,toId:lk.from,linkId:lk.id});
+    }
+
+    const ovEdge = detectEdgeOverlap(edgePairs);
+    const ovNode = detectNodeOverlap(adj);
+    if(ovEdge===0 && ovNode===0) break;
+
+    // Simple repulsion: push involved nodes apart
+    for(const e1 of edgePairs) {
+      for(const e2 of edgePairs) {
+        if(e1===e2||e1.linkId===e2.linkId) continue;
+        if(e1.fromId===e2.fromId||e1.fromId===e2.toId||
+           e1.toId===e2.fromId  ||e1.toId===e2.toId) continue;
+        const p1=e1.pts,p2=e2.pts;
+        for(let a=1;a<p1.length;a++) {
+          for(let b=1;b<p2.length;b++) {
+            if(!lineSeg(p1[a-1],p1[a],p2[b-1],p2[b])) continue;
+            // Nudge all four nodes
+            for(const nid of [e1.fromId,e1.toId,e2.fromId,e2.toId]) {
+              const nd=adj.find(n=>n.id===nid);
+              if(!nd) continue;
+              const o=orig[nid];
+              const mx=(p1[a-1].x+p1[a].x+p2[b-1].x+p2[b].x)/4;
+              const my=(p1[a-1].y+p1[a].y+p2[b-1].y+p2[b].y)/4;
+              const ddx=nd.x-mx,ddy=nd.y-my;
+              const dd=Math.sqrt(ddx*ddx+ddy*ddy)||1;
+              const nx2=nd.x+(ddx/dd)*2.5,ny2=nd.y+(ddy/dd)*2.5;
+              if(Math.abs(nx2-o.x)<=MAX_D&&Math.abs(ny2-o.y)<=MAX_D) {
+                nd.x=nx2; nd.y=ny2;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return adj;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EDGE BUILD PIPELINE
+// ═══════════════════════════════════════════════════════════
+function trimRoute(pts, trimPx) {
+  if(pts.length<2) return pts;
+  const result=[...pts];
+  const d0=dist(result[0],result[1]);
+  if(d0>0){const t=Math.min(trimPx/d0,0.45);
+    result[0]={x:result[0].x+t*(result[1].x-result[0].x),y:result[0].y+t*(result[1].y-result[0].y)};}
+  const last=result.length-1;
+  const d1=dist(result[last],result[last-1]);
+  if(d1>0){const t=Math.min(trimPx/d1,0.45);
+    result[last]={x:result[last].x+t*(result[last-1].x-result[last].x),y:result[last].y+t*(result[last-1].y-result[last].y)};}
+  return result;
+}
+
+// Step A: geometry only — computes parallel polylines, no color splitting
+function buildBaseEdges(nodesMap, links) {
+  const edges=[];
+  for(const lk of links) {
+    const A=nodesMap[lk.from], B=nodesMap[lk.to];
+    if(!A||!B) continue;
+    const route = routeLinkAsPolyline(A, B);
+    const trimmed = trimRoute(route, TRIM);
+    const { forward, backward } = createParallelPolylinePair(trimmed, HALF_SEP);
+    edges.push({ id:lk.id, fromId:lk.from, toId:lk.to, fwdPts:forward, bwdPts:backward });
+  }
+  return edges;
+}
+
+// Step B: apply API congestion data → produce colored pieces
+function buildDisplayEdges(baseEdges, apiLinks) {
+  const apiMap = Object.fromEntries(apiLinks.map(l=>[l.id,l]));
+  return baseEdges.map(e=>{
+    const api = apiMap[e.id];
+    if(!api) return {...e, fwdPieces:[], bwdPieces:[]};
+    const segs_f = api.forward.map( (c,i)=>({id:`${e.id}_f${i}`, congestion:c}));
+    const segs_b = api.backward.map((c,i)=>({id:`${e.id}_b${i}`, congestion:c}));
+    return {
+      ...e,
+      fwdPieces: splitPolylineBySegments(e.fwdPts, segs_f),
+      bwdPieces: splitPolylineBySegments(e.bwdPts, segs_b),
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  LABEL PLACEMENT
+// ═══════════════════════════════════════════════════════════
+function nodeLabelOffset(node, nodesMap, links) {
+  // Average of outgoing directions, then place label opposite
+  const connected = links.filter(lk=>lk.from===node.id||lk.to===node.id);
+  if(!connected.length) return {dx:0,dy:-18};
+  let ax=0,ay=0;
+  for(const lk of connected) {
+    const other = lk.from===node.id ? nodesMap[lk.to] : nodesMap[lk.from];
+    if(!other) continue;
+    const dx=other.x-node.x,dy=other.y-node.y;
+    const l=Math.sqrt(dx*dx+dy*dy)||1;
+    ax+=dx/l; ay+=dy/l;
+  }
+  const l=Math.sqrt(ax*ax+ay*ay)||1;
+  const D=18;
+  return {dx:-ax/l*D, dy:-ay/l*D};
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INCIDENT DETECTION
+// ═══════════════════════════════════════════════════════════
+function generateIncidents(displayEdges, nodes) {
+  if(!displayEdges || !nodes) return [];
+  const nodeMap  = Object.fromEntries(nodes.map(n=>[n.id,n]));
+  const incs     = [];
+  const nodeHits = {};   // nodeId → # of severe links touching it
+
+  for(const e of displayEdges) {
+    const all = [...(e.fwdPieces||[]), ...(e.bwdPieces||[])];
+    if(!all.length) continue;
+    const sevN   = all.filter(p=>p.congestion==='severe').length;
+    const heavyN = all.filter(p=>p.congestion==='heavy').length;
+    const sevR   = sevN / all.length;
+    const hseR   = (sevN + heavyN) / all.length;
+    const from   = nodeMap[e.fromId];
+    const to     = nodeMap[e.toId];
+    const loc    = from && to ? `${from.short}→${to.short}` : e.id;
+
+    if(sevR > 0.50) {
+      incs.push({ type:'幹線渋滞', sev:'CRITICAL', location:loc, id:`lc_${e.id}` });
+      [e.fromId, e.toId].forEach(nid=>{
+        nodeHits[nid] = (nodeHits[nid]||0) + 1;
+      });
+    } else if(hseR > 0.50) {
+      incs.push({ type:'局所渋滞', sev:'HIGH', location:loc, id:`lh_${e.id}` });
+    }
+  }
+
+  for(const [nid, cnt] of Object.entries(nodeHits)) {
+    if(cnt >= 2) {
+      const nd = nodeMap[nid];
+      if(nd) incs.push({ type:'交差点飽和', sev:'CRITICAL', location:nd.short, id:`nc_${nid}` });
+    }
+  }
+
+  incs.sort((a,b)=>
+    a.sev==='CRITICAL' && b.sev!=='CRITICAL' ? -1 :
+    b.sev==='CRITICAL' && a.sev!=='CRITICAL' ?  1 : 0
+  );
+  return incs;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  REACT COMPONENT
+// ═══════════════════════════════════════════════════════════
+function SchematicMap() {
+  const [nodes,        setNodes]        = useState(null);
+  const [displayEdges, setDisplayEdges] = useState(null);
+  const [xings,        setXings]        = useState(null);
+  const [nodeOv,       setNodeOv]       = useState(null);
+  const [lastUpdate,   setLastUpdate]   = useState(null);
+  const [apiError,     setApiError]     = useState(false);
+  // Playback
+  const [mode,        setMode]        = useState('live');   // 'live' | 'replay'
+  const [snapshots,   setSnapshots]   = useState(null);
+  const [snapIndex,   setSnapIndex]   = useState(0);
+  const [playing,     setPlaying]     = useState(false);
+  const [playSpeed,   setPlaySpeed]   = useState(30);       // x real-time
+  const [playTime,    setPlayTime]    = useState(null);     // "16:10" IST string
+  const [binMinutes,  setBinMinutes]  = useState(2);
+  const [sysTime,     setSysTime]     = useState('');
+  const [method,      setMethod]      = useState('gps');  // 'gps' | 'tt'
+
+  const baseRef = useRef(null);
+
+  // ── Effect 1: layout & geometry (once) ──────────────────────
+  useEffect(()=>{
+    const laid  = buildHighResolutionSchematicLayout(RAW_NODES, LINKS);
+    const optim = optimizeLayoutUntilNoOverlap(laid, LINKS);
+    const nm    = Object.fromEntries(optim.map(n=>[n.id,n]));
+    const base  = buildBaseEdges(nm, LINKS);
+    baseRef.current = base;
+
+    const flatEdges = base.flatMap(e=>[
+      {pts:e.fwdPts, fromId:e.fromId, toId:e.toId,   linkId:e.id},
+      {pts:e.bwdPts, fromId:e.toId,   toId:e.fromId, linkId:e.id},
+    ]);
+    setXings(detectEdgeOverlap(flatEdges));
+    setNodeOv(detectNodeOverlap(optim));
+    setNodes(optim);
+  },[]);
+
+  // ── Effect 2: live polling (active only when mode==='live') ──
+  useEffect(()=>{
+    if(mode !== 'live' || !baseRef.current) return;
+    const base = baseRef.current;
+    async function poll() {
+      try {
+        const resp = await fetch(`${API_BASE}/traffic/schematic?method=${method}`);
+        if(!resp.ok) throw new Error(resp.status);
+        const data = await resp.json();
+        setDisplayEdges(buildDisplayEdges(base, data.links));
+        setLastUpdate(new Date(data.timestamp).toLocaleTimeString());
+        setApiError(false);
+      } catch(e) {
+        console.warn('Schematic API error:', e);
+        setApiError(true);
+      }
+    }
+    poll();
+    const timer = setInterval(poll, POLL_MS);
+    return ()=>clearInterval(timer);
+  },[mode, method]);
+
+  // ── Effect 3: load replay snapshots (once) ──────────────────
+  useEffect(()=>{
+    async function load() {
+      try {
+        const resp = await fetch(`${API_BASE}/traffic/schematic-snapshots`);
+        const data = await resp.json();
+        setSnapshots(data.snapshots);
+        setBinMinutes(data.bin_minutes);
+      } catch(e) { console.warn('Snapshot load error:', e); }
+    }
+    load();
+  },[]);
+
+  // ── Effect 4: apply snapshot frame ───────────────────────────
+  useEffect(()=>{
+    if(mode !== 'replay' || !snapshots || !baseRef.current) return;
+    const snap = snapshots[snapIndex];
+    if(!snap) return;
+    setDisplayEdges(buildDisplayEdges(baseRef.current, snap.links));
+    setPlayTime(snap.time_ist);
+  },[mode, snapIndex, snapshots]);
+
+  // ── Effect 5: playback timer ─────────────────────────────────
+  useEffect(()=>{
+    if(mode !== 'replay' || !playing || !snapshots) return;
+    const ms = Math.round(binMinutes * 60_000 / playSpeed);
+    const timer = setInterval(()=>{
+      setSnapIndex(i=>{
+        const next = i + 1;
+        if(next >= snapshots.length){ setPlaying(false); return i; }
+        return next;
+      });
+    }, ms);
+    return ()=>clearInterval(timer);
+  },[mode, playing, playSpeed, snapshots, binMinutes]);
+
+  // ── Effect 6: system clock ───────────────────────────────────
+  useEffect(()=>{
+    const tick = ()=>setSysTime(new Date().toLocaleTimeString('en-GB'));
+    tick();
+    const t = setInterval(tick, 1000);
+    return ()=>clearInterval(t);
+  },[]);
+
+  // ─ Pan / Zoom (combined state for atomic wheel updates) ─
+  const initZ = Math.min((window.innerWidth-40)/CANVAS_W, (window.innerHeight-40)/CANVAS_H);
+  const [vp, setVp] = useState({zoom: initZ, x:20, y:20});
+  const { zoom, x: panX, y: panY } = vp;
+
+  const containerRef = useRef(null);
+  const drag = useRef({on:false, lx:0, ly:0});
+
+  // Non-passive wheel listener so preventDefault() works
+  useEffect(()=>{
+    const el = containerRef.current;
+    if(!el) return;
+    const handler = e => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
+      const rect = el.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      setVp(v => {
+        const newZ = Math.max(0.15, Math.min(8, v.zoom * factor));
+        return {
+          zoom: newZ,
+          x: mx - (mx - v.x) * newZ / v.zoom,
+          y: my - (my - v.y) * newZ / v.zoom,
+        };
+      });
+    };
+    el.addEventListener('wheel', handler, {passive: false});
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
+
+  const onMD  = e=>{ drag.current={on:true,lx:e.clientX,ly:e.clientY}; };
+  const onMM  = e=>{
+    if(!drag.current.on) return;
+    setVp(v=>({...v, x:v.x+(e.clientX-drag.current.lx), y:v.y+(e.clientY-drag.current.ly)}));
+    drag.current={on:true,lx:e.clientX,ly:e.clientY};
+  };
+  const onMU  = ()=>{ drag.current.on=false; };
+
+  // Button zoom helpers
+  const zoomBy = useCallback(f => {
+    setVp(v => {
+      const cx = window.innerWidth/2, cy = window.innerHeight/2;
+      const newZ = Math.max(0.15, Math.min(8, v.zoom * f));
+      return { zoom:newZ, x: cx-(cx-v.x)*newZ/v.zoom, y: cy-(cy-v.y)*newZ/v.zoom };
+    });
+  }, []);
+  const resetView = useCallback(()=>{ setVp({zoom:initZ, x:20, y:20}); }, [initZ]);
+
+  const nodesMap = useMemo(()=>
+    nodes ? Object.fromEntries(nodes.map(n=>[n.id,n])) : {}
+  ,[nodes]);
+
+  const labelOffsets = useMemo(()=>{
+    if(!nodes) return {};
+    return Object.fromEntries(nodes.map(n=>[n.id, nodeLabelOffset(n,nodesMap,LINKS)]));
+  },[nodes,nodesMap]);
+
+  const incidents = useMemo(()=>generateIncidents(displayEdges, nodes),[displayEdges,nodes]);
+
+  const severeNodes = useMemo(()=>{
+    if(!displayEdges) return new Set();
+    const s = new Set();
+    for(const e of displayEdges) {
+      const all = [...(e.fwdPieces||[]), ...(e.bwdPieces||[])];
+      if(!all.length) continue;
+      const sevR = all.filter(p=>p.congestion==='severe').length / all.length;
+      if(sevR > 0.40) { s.add(e.fromId); s.add(e.toId); }
+    }
+    return s;
+  },[displayEdges]);
+
+  if(!nodes) return (
+    <div style={{color:'#88ccff',display:'flex',alignItems:'center',
+                 justifyContent:'center',height:'100vh',fontSize:20}}>
+      Building schematic layout…
+    </div>
+  );
+
+  return (
+    <div ref={containerRef}
+         style={{width:'100vw',height:'100vh',background:'#04080f',
+                 position:'relative',overflow:'hidden',
+                 cursor: drag.current.on ? 'grabbing' : 'grab'}}
+         onMouseDown={onMD} onMouseMove={onMM}
+         onMouseUp={onMU} onMouseLeave={onMU}>
+
+      {/* Scan sweep overlay */}
+      <div className="scan-bar"/>
+
+      {/* ─── Control Room Header ─── */}
+      <div style={{position:'absolute',top:12,left:12,zIndex:30,
+                   background:'rgba(2,5,14,0.96)',borderRadius:6,
+                   border:'1px solid #0f2040',padding:'10px 14px',minWidth:230,
+                   boxShadow:'0 0 28px rgba(0,60,180,.14), inset 0 0 20px rgba(0,20,60,.3)'}}>
+
+        {/* Title bar */}
+        <div style={{display:'flex',alignItems:'center',gap:8,
+                     borderBottom:'1px solid #0a1830',paddingBottom:7,marginBottom:7}}>
+          <div style={{width:8,height:8,borderRadius:'50%',flexShrink:0,
+                       background: mode==='replay'?'#ff8800': apiError?'#ff2200': lastUpdate?'#00ff88':'#334466',
+                       boxShadow: mode==='replay'?'0 0 8px #ff8800': apiError?'0 0 8px #ff2200': lastUpdate?'0 0 8px #00ff88':'none',
+                       ...(mode==='live'&&lastUpdate&&!apiError?{animation:'pulse-dot 2s infinite'}:{})}}/>
+          <span style={{color:'#a8c8e8',fontSize:13,fontWeight:700,letterSpacing:2,fontFamily:'monospace'}}>
+            CHENNAI ITS
+          </span>
+          <span style={{marginLeft:'auto',color:'#1e3a5a',fontSize:10,fontFamily:'monospace',letterSpacing:.5}}>
+            {sysTime}
+          </span>
+        </div>
+
+        {/* Status */}
+        <div style={{fontSize:10,fontFamily:'monospace',letterSpacing:.5,marginBottom:6,
+                     color: mode==='replay'?'#ffaa22': apiError?'#ff4444': lastUpdate?'#00cc66':'#2a4060'}}>
+          {mode==='replay'
+            ? `⏺ REPLAY  ${playTime||'--:--'} IST`
+            : apiError ? '⚠ API ERROR'
+            : lastUpdate
+              ? <span>● LIVE &nbsp;
+                  <span style={{color: method==='gps'?'#44ee88':'#cc88ff',fontWeight:700}}>
+                    [{method.toUpperCase()}]
+                  </span>
+                  &nbsp;{lastUpdate}
+                </span>
+              : '● CONNECTING…'}
+        </div>
+
+        {/* Network stats */}
+        <div style={{display:'flex',gap:10,marginBottom:8,fontSize:10,fontFamily:'monospace'}}>
+          <span style={{color:'#1e3a5a'}}>{RAW_NODES.length} NODES</span>
+          <span style={{color:'#1e3a5a'}}>{LINKS.length} LINKS</span>
+          <span style={{color:xings===0?'#00aa44':'#ff4444',fontWeight:700}}>
+            {xings===0?'✓ CLR':'⚠ '+xings+'X'}
+          </span>
+        </div>
+
+        {/* Mode toggle */}
+        <div style={{display:'flex',gap:4}}>
+          {['live','replay'].map(m=>(
+            <button key={m} onClick={()=>{
+              if(m==='replay'&&!snapshots) return;
+              setMode(m);
+              if(m==='replay'){ setSnapIndex(0); setPlaying(false); }
+            }}
+            style={{flex:1,fontSize:10,padding:'5px 0',borderRadius:3,cursor:'pointer',
+                    fontFamily:'monospace',letterSpacing:.5,fontWeight:700,
+                    background: mode===m ? (m==='live'?'rgba(0,30,100,0.9)':'rgba(70,30,0,0.9)') : 'rgba(6,12,28,0.8)',
+                    border: mode===m ? `1px solid ${m==='live'?'#2255cc':'#cc7700'}` : '1px solid #0a1830',
+                    color: mode===m ? (m==='live'?'#6699ee':'#ffaa22') : '#1e3a5a'}}>
+              {m==='live' ? '● LIVE' : '▶ REPLAY'}
+            </button>
+          ))}
+        </div>
+
+        {/* Method toggle (LIVE only) */}
+        {mode === 'live' && (
+          <div style={{marginTop:6}}>
+            <div style={{color:'#0d2035',fontSize:8,fontFamily:'monospace',
+                         letterSpacing:.5,marginBottom:3}}>SPEED METHOD</div>
+            <div style={{display:'flex',gap:3}}>
+              {[
+                ['gps', 'GPS速度', '瞬間速度(時間平均)'],
+                ['tt',  'TT速度',  '旅行時間(空間平均)'],
+              ].map(([m, lbl, tip])=>(
+                <button key={m} onClick={()=>setMethod(m)} title={tip}
+                  style={{flex:1,fontSize:9,padding:'4px 0',borderRadius:3,cursor:'pointer',
+                          fontFamily:'monospace',fontWeight:700,
+                          background: method===m
+                            ? (m==='gps'?'rgba(0,60,40,0.9)':'rgba(40,0,80,0.9)')
+                            : 'rgba(6,12,28,0.8)',
+                          border: method===m
+                            ? `1px solid ${m==='gps'?'#00aa55':'#8844cc'}`
+                            : '1px solid #0a1830',
+                          color: method===m
+                            ? (m==='gps'?'#44ee88':'#cc88ff')
+                            : '#1e3a5a'}}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Incident count badge */}
+        {incidents.length > 0 && (
+          <div style={{marginTop:7,display:'flex',alignItems:'center',gap:5,
+                       borderTop:'1px solid #0a1830',paddingTop:6}}>
+            <div style={{width:6,height:6,borderRadius:'50%',background:'#ff2200',
+                         boxShadow:'0 0 6px #ff2200',animation:'pulse-dot 1.5s infinite'}}/>
+            <span style={{color:'#ff6644',fontSize:9,fontFamily:'monospace',letterSpacing:.5}}>
+              {incidents.filter(i=>i.sev==='CRITICAL').length} CRITICAL &nbsp;
+              {incidents.filter(i=>i.sev==='HIGH').length} HIGH
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ─── Incident Management + Legend ─── */}
+      <div style={{position:'absolute',top:12,right:12,zIndex:30,
+                   background:'rgba(2,5,14,0.96)',borderRadius:6,
+                   border:'1px solid #0f2040',padding:'10px 14px',width:208,
+                   boxShadow:'0 0 28px rgba(0,60,180,.14), inset 0 0 20px rgba(0,20,60,.3)'}}>
+
+        {/* Incident panel header */}
+        <div style={{display:'flex',alignItems:'center',gap:6,
+                     borderBottom:'1px solid #0a1830',paddingBottom:6,marginBottom:7}}>
+          <span style={{color:'#a8c8e8',fontSize:10,fontWeight:700,
+                        letterSpacing:1.2,fontFamily:'monospace'}}>INCIDENT MGT</span>
+          {incidents.length > 0 && (
+            <span style={{marginLeft:'auto',background:'rgba(160,20,0,0.85)',color:'#ffcccc',
+                          fontSize:8,fontWeight:700,fontFamily:'monospace',borderRadius:3,
+                          padding:'1px 5px',animation:'blink-crit 1.5s infinite',letterSpacing:.5}}>
+              {incidents.length} EVT
+            </span>
+          )}
+        </div>
+
+        {/* Incident list */}
+        <div style={{maxHeight:170,overflowY:'auto',marginBottom:8,
+                     scrollbarWidth:'thin',scrollbarColor:'#0a2040 transparent'}}>
+          {incidents.length === 0 ? (
+            <div style={{color:'#0d2030',fontSize:9,fontFamily:'monospace',
+                         textAlign:'center',padding:'10px 0',letterSpacing:.5}}>
+              ── ALL CLEAR ──
+            </div>
+          ) : incidents.slice(0,10).map(inc=>(
+            <div key={inc.id}
+              style={{display:'flex',alignItems:'center',gap:5,marginBottom:6,
+                      padding:'4px 5px',borderRadius:3,
+                      background: inc.sev==='CRITICAL'?'rgba(80,10,0,0.4)':'rgba(60,30,0,0.3)',
+                      border: `1px solid ${inc.sev==='CRITICAL'?'#3a0800':'#3a2000'}`}}>
+              <div style={{width:5,height:5,borderRadius:'50%',flexShrink:0,
+                           background: inc.sev==='CRITICAL'?'#ff2200':'#ff8800',
+                           boxShadow: inc.sev==='CRITICAL'?'0 0 6px #ff2200':'0 0 4px #ff8800'}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:9,fontFamily:'monospace',fontWeight:700,
+                             color: inc.sev==='CRITICAL'?'#ff7755':'#ffbb55'}}>
+                  {inc.type}
+                </div>
+                <div style={{fontSize:8,fontFamily:'monospace',color:'#2a5070',
+                             overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                  {inc.location}
+                </div>
+              </div>
+              <span style={{fontSize:7,fontWeight:700,fontFamily:'monospace',flexShrink:0,letterSpacing:.3,
+                            color: inc.sev==='CRITICAL'?'#ff5533':'#ff9944'}}>
+                {inc.sev==='CRITICAL'?'CRIT':'HIGH'}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Separator + Legend */}
+        <div style={{borderTop:'1px solid #0a1830',paddingTop:7}}>
+          <div style={{color:'#1e3a5a',fontSize:9,fontFamily:'monospace',
+                       fontWeight:700,letterSpacing:.8,marginBottom:6}}>
+            CONGESTION INDEX
+          </div>
+          {[['#00ff88','Free'],['#ffdd00','Moderate'],
+            ['#ff8800','Heavy'],['#ff2200','Severe']].map(([c,l])=>(
+            <div key={l} style={{display:'flex',alignItems:'center',gap:7,marginBottom:5}}>
+              <div style={{width:22,height:3,background:c,borderRadius:1,
+                           boxShadow:`0 0 4px ${c}44`}}/>
+              <span style={{color:'#2a5070',fontSize:9,fontFamily:'monospace'}}>{l}</span>
+            </div>
+          ))}
+          <div style={{marginTop:6,color:'#0d1e30',fontSize:8,fontFamily:'monospace',lineHeight:1.6}}>
+            BOLD = OUTBOUND &nbsp; THIN = INBOUND<br/>
+            RESOLUTION ≈ 300m/SEG
+          </div>
+        </div>
+      </div>
+
+      {/* Timeline bar (replay mode) */}
+      {mode==='replay' && snapshots && (
+        <div style={{position:'absolute',bottom:20,left:16,right:70,zIndex:30,
+                     background:'rgba(4,8,15,0.93)',borderRadius:8,
+                     border:'1px solid #1a3a66',padding:'8px 14px'}}>
+          {/* Controls row */}
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+            {/* Prev */}
+            <button onClick={()=>{ setPlaying(false); setSnapIndex(i=>Math.max(0,i-1)); }}
+              style={btnStyle}>◀</button>
+            {/* Play/Pause */}
+            <button onClick={()=>{
+              if(snapIndex >= snapshots.length-1){ setSnapIndex(0); setPlaying(true); }
+              else setPlaying(p=>!p);
+            }}
+              style={{...btnStyle, width:38,
+                background: playing?'rgba(60,40,0,0.9)':'rgba(0,30,60,0.9)',
+                border: playing?'1px solid #cc7700':'1px solid #1a55cc',
+                color: playing?'#ffaa22':'#88ccff'}}>
+              {playing ? '⏸' : '▶'}
+            </button>
+            {/* Next */}
+            <button onClick={()=>{ setPlaying(false); setSnapIndex(i=>Math.min(snapshots.length-1,i+1)); }}
+              style={btnStyle}>▶</button>
+            {/* Speed selector */}
+            <div style={{display:'flex',gap:3,marginLeft:4}}>
+              {[10,30,60,120].map(s=>(
+                <button key={s} onClick={()=>setPlaySpeed(s)}
+                  style={{fontSize:9,padding:'2px 5px',borderRadius:3,cursor:'pointer',
+                          background: playSpeed===s?'rgba(20,60,0,0.9)':'rgba(8,16,32,0.8)',
+                          border: playSpeed===s?'1px solid #44aa22':'1px solid #1a2a3a',
+                          color: playSpeed===s?'#88ff44':'#446688'}}>
+                  {s}×
+                </button>
+              ))}
+            </div>
+            {/* Time label */}
+            <div style={{marginLeft:'auto',color:'#ffcc44',fontSize:12,fontWeight:700,
+                         fontFamily:'monospace',whiteSpace:'nowrap'}}>
+              {playTime||'--:--'} IST
+            </div>
+          </div>
+          {/* Slider */}
+          <div style={{position:'relative',height:20,cursor:'pointer'}}
+            onClick={e=>{
+              const rect = e.currentTarget.getBoundingClientRect();
+              const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+              setSnapIndex(Math.round(t * (snapshots.length-1)));
+              setPlaying(false);
+            }}>
+            <div style={{position:'absolute',top:'50%',left:0,right:0,height:3,
+                         background:'#0d2040',borderRadius:2,transform:'translateY(-50%)'}}/>
+            <div style={{position:'absolute',top:'50%',left:0,
+                         width:`${(snapIndex/(snapshots.length-1))*100}%`,
+                         height:3,background:'#2266cc',borderRadius:2,transform:'translateY(-50%)'}}/>
+            {snapshots.map((_,i)=>(
+              <div key={i} style={{position:'absolute',top:'50%',
+                left:`${(i/(snapshots.length-1))*100}%`,
+                width:3,height:8,background:'#1a3a66',transform:'translate(-50%,-50%)'}}/>
+            ))}
+            <div style={{position:'absolute',top:'50%',
+              left:`${(snapIndex/(snapshots.length-1))*100}%`,
+              width:12,height:12,background:'#4488ee',borderRadius:'50%',
+              transform:'translate(-50%,-50%)',boxShadow:'0 0 6px #4488ee88'}}/>
+          </div>
+          {/* Time labels */}
+          <div style={{display:'flex',justifyContent:'space-between',marginTop:2}}>
+            <span style={{color:'#334466',fontSize:9}}>{snapshots[0].time_ist}</span>
+            <span style={{color:'#334466',fontSize:9}}>{snapshots[Math.floor(snapshots.length/2)].time_ist}</span>
+            <span style={{color:'#334466',fontSize:9}}>{snapshots[snapshots.length-1].time_ist}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Zoom controls */}
+      <div style={{position:'absolute',bottom:24,right:20,zIndex:30,
+                   display:'flex',flexDirection:'column',gap:6}}>
+        {[['＋', ()=>zoomBy(1.3)], ['−', ()=>zoomBy(1/1.3)], ['⌂', resetView]].map(([lbl,fn])=>(
+          <button key={lbl} onClick={fn}
+            style={{width:38,height:38,background:'rgba(10,20,40,0.92)',border:'1px solid #1a3366',
+                    borderRadius:6,color:'#88aacc',fontSize:18,cursor:'pointer',
+                    display:'flex',alignItems:'center',justifyContent:'center',lineHeight:1,
+                    userSelect:'none'}}>
+            {lbl}
+          </button>
+        ))}
+        <div style={{textAlign:'center',color:'#1a3366',fontSize:10,marginTop:2}}>
+          {(zoom*100).toFixed(0)}%
+        </div>
+      </div>
+
+      {/* SVG */}
+      <svg width="100%" height="100%" style={{display:'block'}}>
+        <defs>
+          <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1.8" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+
+        {/* Transform group: pan + zoom */}
+        <g transform={`translate(${panX},${panY}) scale(${zoom})`}>
+
+          {/* Background */}
+          <rect x="0" y="0" width={CANVAS_W} height={CANVAS_H} fill="#04080f"/>
+          {/* Subtle grid */}
+          {Array.from({length:Math.ceil(CANVAS_W/120)+1}).map((_,i)=>(
+            <line key={`gx${i}`} x1={i*120} y1={0} x2={i*120} y2={CANVAS_H}
+                  stroke="#080e1c" strokeWidth="1"/>
+          ))}
+          {Array.from({length:Math.ceil(CANVAS_H/120)+1}).map((_,i)=>(
+            <line key={`gy${i}`} x1={0} y1={i*120} x2={CANVAS_W} y2={i*120}
+                  stroke="#080e1c" strokeWidth="1"/>
+          ))}
+
+          {/* ── ROAD LINKS ── */}
+          {displayEdges && <>
+            {/* Glow halos */}
+            <g opacity={0.15}>
+              {displayEdges.map(e=>[
+                ...e.fwdPieces.map((pc,i)=>(
+                  <path key={`hf${e.id}${i}`} d={segPath(pc.points)}
+                    stroke={CONG[pc.congestion]} strokeWidth={FWD_W*2.5}
+                    strokeLinecap="round" fill="none"/>
+                )),
+                ...e.bwdPieces.map((pc,i)=>(
+                  <path key={`hb${e.id}${i}`} d={segPath(pc.points)}
+                    stroke={CONG[pc.congestion]} strokeWidth={BWD_W*2.5}
+                    strokeLinecap="round" fill="none"/>
+                )),
+              ])}
+            </g>
+            {/* Forward lines (outbound – bolder) */}
+            <g filter="url(#glow)">
+              {displayEdges.map(e=>renderSegmentedDirectionalLine(e.fwdPieces, FWD_W, 0.94))}
+            </g>
+            {/* Backward lines (inbound – thinner) */}
+            <g filter="url(#glow)">
+              {displayEdges.map(e=>renderSegmentedDirectionalLine(e.bwdPieces, BWD_W, 0.78))}
+            </g>
+          </>}
+
+          {/* ── NODES ── */}
+          {nodes.map(nd=>{
+            const lo       = labelOffsets[nd.id]||{dx:0,dy:-18};
+            const isSevere = severeNodes.has(nd.id);
+            return (
+              <g key={nd.id}>
+                {/* Pulsing danger ring for severe congestion nodes */}
+                {isSevere && (
+                  <circle cx={nd.x} cy={nd.y} r={NODE_R+7}
+                    fill="none" stroke="#ff2200" strokeWidth="1.5"
+                    style={{animation:'pulse-node 1.6s ease-in-out infinite'}}/>
+                )}
+                {/* Outer halo */}
+                <circle cx={nd.x} cy={nd.y} r={NODE_R+5}
+                  fill="none" stroke={isSevere?'#3a0800':'#0d1e3a'}
+                  strokeWidth="1" opacity=".45"/>
+                {/* Node body */}
+                <circle cx={nd.x} cy={nd.y} r={NODE_R}
+                  fill={isSevere?'#150400':'#040c1a'}
+                  stroke={isSevere?'#cc2200':'#1a44aa'} strokeWidth="1.8"/>
+                {/* Center dot */}
+                <circle cx={nd.x} cy={nd.y} r={2.2}
+                  fill={isSevere?'#ff4422':'#3377dd'} opacity=".9"/>
+                {/* Label – stroke for readability */}
+                <text x={nd.x+lo.dx} y={nd.y+lo.dy}
+                  textAnchor="middle" dominantBaseline="middle"
+                  stroke="#030710" strokeWidth="3.5" strokeLinejoin="round"
+                  fill="#030710" fontSize={FONT_SZ} fontWeight="700"
+                  style={{userSelect:'none',fontFamily:'Segoe UI,system-ui,sans-serif'}}>
+                  {nd.short}
+                </text>
+                <text x={nd.x+lo.dx} y={nd.y+lo.dy}
+                  textAnchor="middle" dominantBaseline="middle"
+                  fill={isSevere?'#ffaa88':'#88aac8'} fontSize={FONT_SZ} fontWeight="700"
+                  style={{userSelect:'none',fontFamily:'Segoe UI,system-ui,sans-serif'}}>
+                  {nd.short}
+                </text>
+              </g>
+            );
+          })}
+
+        </g>{/* end transform */}
+      </svg>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<SchematicMap/>);
+</script>
+</body>
+</html>

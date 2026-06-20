@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.db
+*.sqlite3
+.env
+node_modules/
+dist/
+.nuxt/
+*.log
+.DS_Store
+venv/
+.venv/
+server/src/data/*.json
+node/src/node_modules
