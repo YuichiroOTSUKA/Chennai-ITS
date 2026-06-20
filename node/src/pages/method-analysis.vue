@@ -127,8 +127,8 @@ const maxNTrav = computed(() =>
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#060a10] text-[#c8d8e8] font-mono">
-
+  <div class="min-h-screen bg-[#020818] text-[#c8d8e8] font-mono" style="padding-left:52px">
+    <NavSidebar />
     <!-- Header -->
     <header class="border-b border-[#1a2535] px-5 py-2.5 flex items-center gap-4">
       <NuxtLink to="/"

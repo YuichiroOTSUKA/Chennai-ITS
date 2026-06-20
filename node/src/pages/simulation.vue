@@ -148,6 +148,7 @@ const sumoAvailable = computed(() => !!sumoData.value);
 
 <template>
   <div class="sim-page">
+    <NavSidebar />
     <!-- Header -->
     <header class="sim-header">
       <div class="sim-header-left">
@@ -346,7 +347,7 @@ const sumoAvailable = computed(() => !!sumoData.value);
 </template>
 
 <style scoped>
-.sim-page { background: #0a0a0a; min-height: 100vh; color: #e2e8f0; font-family: 'Courier New', monospace; }
+.sim-page { background: #020818; min-height: 100vh; color: #e2e8f0; font-family: 'Courier New', monospace; padding-left: 52px; }
 
 .sim-header {
   display: flex; align-items: center; justify-content: space-between;

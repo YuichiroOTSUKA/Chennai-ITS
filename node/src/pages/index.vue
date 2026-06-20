@@ -170,6 +170,7 @@ onUnmounted(() => {
 
 <template>
   <div class="tms-root">
+    <NavSidebar />
     <div class="scan-bar" />
 
     <!-- Control Room Header -->
@@ -300,11 +301,6 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <NuxtLink to="/compare"          class="compare-fab">⇄ COMPARE</NuxtLink>
-    <NuxtLink to="/analytics"        class="analytics-fab">▦ ANALYTICS</NuxtLink>
-    <NuxtLink to="/method-analysis"  class="method-fab">⊕ METHOD</NuxtLink>
-    <NuxtLink to="/simulation"       class="sim-fab">▷ SIMULATION</NuxtLink>
-    <NuxtLink to="/forecast"         class="forecast-fab">◈ FORECAST</NuxtLink>
 
     <main class="tms-main">
       <TrafficMap
@@ -349,17 +345,18 @@ onUnmounted(() => {
 
 .tms-root {
   width: 100vw; height: 100vh;
-  background: #020810;
+  background: #020818;
   display: flex; flex-direction: column;
   overflow: hidden;
   font-family: "Segoe UI", system-ui, sans-serif;
+  padding-left: 52px;
 }
 
 .tms-header {
   display: flex; align-items: center;
   padding: 8px 14px;
-  background: rgba(2, 5, 14, 0.97);
-  border-bottom: 1px solid #0f2040;
+  background: rgba(2, 8, 24, 0.97);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.1);
   flex-shrink: 0;
   z-index: 10;
   box-shadow: 0 0 28px rgba(0, 60, 180, 0.14), inset 0 0 20px rgba(0, 20, 60, 0.3);
@@ -482,61 +479,6 @@ onUnmounted(() => {
 .vtab.active-map { background: rgba(0, 30, 100, 0.9); border-color: #2255cc; color: #6699ee; }
 .vtab.active-sch { background: rgba(70, 30, 0, 0.9);  border-color: #cc7700; color: #ffaa22; }
 .vtab:hover:not(.active-map):not(.active-sch) { color: #2a5070; }
-.compare-fab {
-  position: fixed; bottom: 20px; right: 20px; z-index: 100;
-  text-decoration: none; font-family: monospace; font-weight: 700;
-  font-size: 11px; letter-spacing: 0.1em;
-  padding: 8px 18px; border-radius: 4px;
-  background: rgba(0, 30, 80, 0.92); border: 1px solid #2255cc;
-  color: #6699ee;
-  box-shadow: 0 0 12px rgba(40,80,200,0.3);
-  transition: all 0.15s;
-}
-.compare-fab:hover { background: rgba(0, 50, 140, 0.95); color: #88bbff; border-color: #4477ee; box-shadow: 0 0 20px rgba(60,100,255,0.4); }
-.analytics-fab {
-  position: fixed; bottom: 62px; right: 20px; z-index: 100;
-  text-decoration: none; font-family: monospace; font-weight: 700;
-  font-size: 11px; letter-spacing: 0.1em;
-  padding: 8px 18px; border-radius: 4px;
-  background: rgba(0, 30, 50, 0.92); border: 1px solid #00aa88;
-  color: #00cc99;
-  box-shadow: 0 0 12px rgba(0,180,140,0.2);
-  transition: all 0.15s;
-}
-.analytics-fab:hover { background: rgba(0, 60, 50, 0.95); color: #00ffcc; border-color: #00ddaa; box-shadow: 0 0 20px rgba(0,220,180,0.3); }
-.method-fab {
-  position: fixed; bottom: 104px; right: 20px; z-index: 100;
-  text-decoration: none; font-family: monospace; font-weight: 700;
-  font-size: 11px; letter-spacing: 0.1em;
-  padding: 8px 18px; border-radius: 4px;
-  background: rgba(40, 10, 60, 0.92); border: 1px solid #7733aa;
-  color: #aa66ff;
-  box-shadow: 0 0 12px rgba(120,60,200,0.2);
-  transition: all 0.15s;
-}
-.method-fab:hover { background: rgba(70, 20, 100, 0.95); color: #cc99ff; border-color: #9955cc; box-shadow: 0 0 20px rgba(150,80,240,0.3); }
-.sim-fab {
-  position: fixed; bottom: 146px; right: 20px; z-index: 100;
-  text-decoration: none; font-family: monospace; font-weight: 700;
-  font-size: 11px; letter-spacing: 0.1em;
-  padding: 8px 18px; border-radius: 4px;
-  background: rgba(40, 20, 0, 0.92); border: 1px solid #7c3a00;
-  color: #f97316;
-  box-shadow: 0 0 12px rgba(249,115,22,0.2);
-  transition: all 0.15s;
-}
-.sim-fab:hover { background: rgba(70, 30, 0, 0.95); color: #fb923c; border-color: #ea580c; box-shadow: 0 0 20px rgba(249,115,22,0.4); }
-.forecast-fab {
-  position: fixed; bottom: 188px; right: 20px; z-index: 100;
-  text-decoration: none; font-family: monospace; font-weight: 700;
-  font-size: 11px; letter-spacing: 0.1em;
-  padding: 8px 18px; border-radius: 4px;
-  background: rgba(10, 10, 40, 0.92); border: 1px solid #4338ca;
-  color: #6366f1;
-  box-shadow: 0 0 12px rgba(99,102,241,0.2);
-  transition: all 0.15s;
-}
-.forecast-fab:hover { background: rgba(30, 20, 80, 0.95); color: #818cf8; border-color: #6366f1; box-shadow: 0 0 20px rgba(99,102,241,0.4); }
 
 .tms-main { flex: 1; overflow: hidden; position: relative; }
 

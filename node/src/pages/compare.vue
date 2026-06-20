@@ -133,6 +133,7 @@ function pct(v: number): string { return (v * 100).toFixed(1) + "%"; }
 
 <template>
   <div class="cmp-root">
+    <NavSidebar />
     <!-- ヘッダー -->
     <header class="cmp-header">
       <NuxtLink to="/" class="back-btn">← BACK</NuxtLink>
@@ -385,18 +386,19 @@ function pct(v: number): string { return (v * 100).toFixed(1) + "%"; }
 
 .cmp-root {
   width: 100vw; height: 100vh;
-  background: #020810; color: #94a3b8;
+  background: #020818; color: #94a3b8;
   display: flex; flex-direction: column;
   font-family: "Segoe UI", system-ui, sans-serif;
   overflow: hidden;
+  padding-left: 52px;
 }
 
 /* ── ヘッダー ── */
 .cmp-header {
   display: flex; align-items: center; gap: 14px;
   padding: 7px 14px;
-  background: rgba(2,5,14,0.97);
-  border-bottom: 1px solid #0f2040;
+  background: rgba(2,8,24,0.97);
+  border-bottom: 1px solid rgba(56,189,248,0.1);
   flex-shrink: 0;
 }
 .back-btn {

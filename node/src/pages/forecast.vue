@@ -138,6 +138,7 @@ const satLineX = computed(() => {
 
 <template>
   <div class="fc-page">
+    <NavSidebar />
     <!-- Header -->
     <header class="fc-header">
       <div class="fc-nav">
@@ -344,7 +345,7 @@ const satLineX = computed(() => {
 </template>
 
 <style scoped>
-.fc-page { background: #0a0a0a; min-height: 100vh; color: #e2e8f0; font-family: 'Courier New', monospace; }
+.fc-page { background: #020818; min-height: 100vh; color: #e2e8f0; font-family: 'Courier New', monospace; padding-left: 52px; }
 
 .fc-header {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
